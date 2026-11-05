@@ -1,0 +1,1073 @@
+-- Menyimpan source code ke variabel untuk di-queue saat teleport
+local script_source = [==[
+-- Anti-Detection: Delay acak per session
+if not game:IsLoaded() then game.Loaded:Wait() end
+if not getgenv().UniSc_SessionSeed then
+    getgenv().UniSc_SessionSeed = math.random(1, 999999)
+end
+math.randomseed(getgenv().UniSc_SessionSeed + math.floor(tick()))
+task.wait(0.15 + math.random() * 0.35)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Per-session randomized intervals (anti-detection)
+local RAND_KILL = 0.18 + math.random() * 0.08
+local RAND_ATTACK = 0.13 + math.random() * 0.07
+local RAND_OPS = 2.3 + math.random() * 0.6
+local RAND_RAID = 2.8 + math.random() * 0.6
+local RAND_CHEST = 0.45 + math.random() * 0.15
+
+-- FITUR PERSISTENCE
+if getgenv().UniSc_Persistent then
+    if getgenv().UniSc_GUI and not getgenv().UniSc_GUI.Parent then
+        getgenv().UniSc_GUI.Parent = getGuiParent()
+    end
+    return
+end
+getgenv().UniSc_Persistent = true
+getgenv().UniSc_CustomTargets = getgenv().UniSc_CustomTargets or {}
+
+-- ==========================================
+-- KONFIGURASI
+-- ==========================================
+local BossNames = { "ironvale sentinel", "black ice", "dragon lord", "the warden" }
+local EnemyNames = { "ironvale drone", "ice ghost", "enemy", "mob", "helix trooper", "razorback", "boss" }
+local MAX_DISTANCE = 130
+
+for _, customName in ipairs(getgenv().UniSc_CustomTargets) do
+    table.insert(BossNames, customName)
+    table.insert(EnemyNames, customName)
+end
+-- ==========================================
+
+local function getGuiParent()
+    local success, hui = pcall(function() return gethui() end)
+    if success and hui then return hui end
+    local success2, core = pcall(function() return game:GetService("CoreGui") end)
+    if success2 and core then return core end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ========== THEMES ==========
+local Themes = {
+    ["Cyber Red"]     = {accent = Color3.fromRGB(255, 50, 50),  bg = Color3.fromRGB(10, 12, 16), bgLight = Color3.fromRGB(15, 18, 25), bgInput = Color3.fromRGB(20, 24, 30)},
+    ["Neon Cyan"]     = {accent = Color3.fromRGB(0, 255, 255),  bg = Color3.fromRGB(6, 14, 20),  bgLight = Color3.fromRGB(10, 20, 30), bgInput = Color3.fromRGB(15, 28, 40)},
+    ["Toxic Green"]   = {accent = Color3.fromRGB(0, 255, 100),  bg = Color3.fromRGB(6, 16, 10),  bgLight = Color3.fromRGB(10, 24, 15), bgInput = Color3.fromRGB(15, 32, 20)},
+    ["Purple Void"]   = {accent = Color3.fromRGB(180, 80, 255), bg = Color3.fromRGB(12, 8, 20),  bgLight = Color3.fromRGB(18, 12, 30), bgInput = Color3.fromRGB(24, 16, 40)},
+    ["Sunset Orange"] = {accent = Color3.fromRGB(255, 140, 0),  bg = Color3.fromRGB(20, 12, 8),  bgLight = Color3.fromRGB(30, 18, 12), bgInput = Color3.fromRGB(40, 24, 16)},
+    ["Ice Blue"]      = {accent = Color3.fromRGB(100, 200, 255),bg = Color3.fromRGB(8, 12, 20),  bgLight = Color3.fromRGB(12, 18, 28), bgInput = Color3.fromRGB(18, 26, 38)},
+}
+local ThemeOrder = {"Cyber Red", "Neon Cyan", "Toxic Green", "Purple Void", "Sunset Orange", "Ice Blue"}
+local CurrentThemeName = "Cyber Red"
+local Theme = Themes[CurrentThemeName]
+
+-- ========== STATE ==========
+local AutoKillBossEnabled = false
+local AutoKillEnemyEnabled = false
+local AutoAttackEnabled = false
+local AutoOpsEnabled = false
+local AutoRaidEnabled = false
+local AutoChestEnabled = false
+local GodModeEnabled = false
+local AntiAfkEnabled = false
+local AttackPriority = "NPC"
+local UIOpacity = 1.0
+local isAlive = true
+
+-- ========== ROOT GUI ==========
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CyberUniversalInstaKill"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = getGuiParent()
+getgenv().UniSc_GUI = ScreenGui
+
+-- ========== MAIN FRAME ==========
+local FRAME_W, FRAME_H = 340, 360
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, FRAME_W, 0, FRAME_H)
+MainFrame.Position = UDim2.new(0.5, -FRAME_W/2, 0.5, -FRAME_H/2)
+MainFrame.BackgroundColor3 = Theme.bg
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = false
+MainFrame.Parent = ScreenGui
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Theme.accent
+UIStroke.Thickness = 1.5
+UIStroke.Parent = MainFrame
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.Parent = MainFrame
+
+-- ========== TITLE BAR ==========
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 32)
+TitleBar.BackgroundColor3 = Theme.bgLight
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = TitleBar
+
+local TitleAccent = Instance.new("Frame")
+TitleAccent.Size = UDim2.new(0, 3, 0, 18)
+TitleAccent.Position = UDim2.new(0, 10, 0.5, -9)
+TitleAccent.BackgroundColor3 = Theme.accent
+TitleAccent.BorderSizePixel = 0
+TitleAccent.Parent = TitleBar
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -90, 1, 0)
+TitleText.Position = UDim2.new(0, 18, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "[ OPS FARMER ]"
+TitleText.TextColor3 = Theme.accent
+TitleText.Font = Enum.Font.Code
+TitleText.TextSize = 13
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = TitleBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 32, 1, 0)
+MinBtn.Position = UDim2.new(1, -68, 0, 0)
+MinBtn.BackgroundTransparency = 1
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinBtn.Font = Enum.Font.Code
+MinBtn.TextSize = 14
+MinBtn.Parent = TitleBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 32, 1, 0)
+CloseBtn.Position = UDim2.new(1, -32, 0, 0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Theme.accent
+CloseBtn.Font = Enum.Font.Code
+CloseBtn.TextSize = 14
+CloseBtn.Parent = TitleBar
+
+-- ========== TAB BAR ==========
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -20, 0, 28)
+TabBar.Position = UDim2.new(0, 10, 0, 38)
+TabBar.BackgroundColor3 = Theme.bgLight
+TabBar.BorderSizePixel = 0
+TabBar.Parent = MainFrame
+local TabBarCorner = Instance.new("UICorner")
+TabBarCorner.CornerRadius = UDim.new(0, 4)
+TabBarCorner.Parent = TabBar
+
+local tabNames = {"KILL", "AUTO", "CONFIG", "SETTINGS"}
+local tabButtons = {}
+local tabContents = {}
+local activeTab = 1
+
+for i, name in ipairs(tabNames) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1/#tabNames, -3, 1, 0)
+    btn.Position = UDim2.new((i-1)/#tabNames, 1 + (i-1)*1.5, 0, 0)
+    btn.BackgroundColor3 = Theme.bgInput
+    btn.BorderSizePixel = 0
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    btn.Font = Enum.Font.Code
+    btn.TextSize = 10
+    btn.Parent = TabBar
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 3)
+    c.Parent = btn
+    tabButtons[i] = btn
+end
+
+for i = 1, #tabNames do
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, -20, 0, 210)
+    f.Position = UDim2.new(0, 10, 0, 72)
+    f.BackgroundTransparency = 1
+    f.Visible = (i == 1)
+    f.Parent = MainFrame
+    tabContents[i] = f
+end
+
+local function setActiveTab(idx)
+    activeTab = idx
+    for i, btn in ipairs(tabButtons) do
+        if i == idx then
+            btn.BackgroundColor3 = Theme.accent
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            btn.BackgroundColor3 = Theme.bgInput
+            btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
+        tabContents[i].Visible = (i == idx)
+    end
+end
+
+for i, btn in ipairs(tabButtons) do
+    btn.MouseButton1Click:Connect(function() setActiveTab(i) end)
+end
+setActiveTab(1)
+
+-- ========== TAB 1: KILL ==========
+local KillContent = tabContents[1]
+
+local RangeInfo = Instance.new("TextLabel")
+RangeInfo.Size = UDim2.new(1, 0, 0, 15)
+RangeInfo.Position = UDim2.new(0, 0, 0, 0)
+RangeInfo.BackgroundTransparency = 1
+RangeInfo.Text = "RANGE LIMIT: " .. MAX_DISTANCE .. " STUDS"
+RangeInfo.TextColor3 = Color3.fromRGB(255, 165, 0)
+RangeInfo.Font = Enum.Font.Code
+RangeInfo.TextSize = 10
+RangeInfo.TextXAlignment = Enum.TextXAlignment.Left
+RangeInfo.Parent = KillContent
+
+local function makeToggle(parent, y, text)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.Position = UDim2.new(0, 0, 0, y)
+    btn.BackgroundColor3 = Theme.accent
+    btn.BorderSizePixel = 0
+    btn.Text = text .. " : OFF"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.Code
+    btn.TextSize = 11
+    btn.Parent = parent
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = btn
+    return btn
+end
+
+local ToggleBossBtn = makeToggle(KillContent, 20, "INSTANT KILL BOSS")
+local ToggleEnemyBtn = makeToggle(KillContent, 55, "INSTANT KILL NPC")
+local ToggleAutoAttackBtn = makeToggle(KillContent, 90, "AUTO ATTACK (MELEE)")
+
+-- ========== TAB 2: AUTO ==========
+local AutoContent = tabContents[2]
+local ToggleOpsBtn = makeToggle(AutoContent, 0, "AUTO START OPS")
+local ToggleRaidBtn = makeToggle(AutoContent, 35, "AUTO REPLAY RAID")
+local ToggleChestBtn = makeToggle(AutoContent, 70, "AUTO OPEN CHEST")
+local ToggleGodBtn = makeToggle(AutoContent, 105, "GOD MODE")
+local ToggleAfkBtn = makeToggle(AutoContent, 140, "ANTI AFK")
+
+-- ========== TAB 3: CONFIG ==========
+local ConfigContent = tabContents[3]
+
+local PriorityBtn = Instance.new("TextButton")
+PriorityBtn.Size = UDim2.new(1, 0, 0, 30)
+PriorityBtn.Position = UDim2.new(0, 0, 0, 0)
+PriorityBtn.BackgroundColor3 = Theme.bgInput
+PriorityBtn.BorderSizePixel = 0
+PriorityBtn.Text = "ATTACK PRIORITY: NPC"
+PriorityBtn.TextColor3 = Theme.accent
+PriorityBtn.Font = Enum.Font.Code
+PriorityBtn.TextSize = 11
+PriorityBtn.Parent = ConfigContent
+local pc = Instance.new("UICorner")
+pc.CornerRadius = UDim.new(0, 4)
+pc.Parent = PriorityBtn
+local ps = Instance.new("UIStroke")
+ps.Color = Theme.accent
+ps.Thickness = 1
+ps.Parent = PriorityBtn
+
+-- Priority popup
+local PriorityPopup = Instance.new("Frame")
+PriorityPopup.Size = UDim2.new(0, 160, 0, 64)
+PriorityPopup.Position = UDim2.new(0, 0, 0, 35)
+PriorityPopup.BackgroundColor3 = Theme.bgLight
+PriorityPopup.BorderSizePixel = 0
+PriorityPopup.Visible = false
+PriorityPopup.ZIndex = 50
+PriorityPopup.Parent = ConfigContent
+local ppc = Instance.new("UICorner")
+ppc.CornerRadius = UDim.new(0, 4)
+ppc.Parent = PriorityPopup
+local pps = Instance.new("UIStroke")
+pps.Color = Theme.accent
+pps.Thickness = 1
+pps.Parent = PriorityPopup
+
+local PopupNPC = Instance.new("TextButton")
+PopupNPC.Size = UDim2.new(1, -8, 0, 28)
+PopupNPC.Position = UDim2.new(0, 4, 0, 4)
+PopupNPC.BackgroundColor3 = Theme.bgInput
+PopupNPC.BorderSizePixel = 0
+PopupNPC.Text = "NPC"
+PopupNPC.TextColor3 = Color3.fromRGB(255, 255, 255)
+PopupNPC.Font = Enum.Font.Code
+PopupNPC.TextSize = 11
+PopupNPC.ZIndex = 51
+PopupNPC.Parent = PriorityPopup
+local nc = Instance.new("UICorner")
+nc.CornerRadius = UDim.new(0, 3)
+nc.Parent = PopupNPC
+
+local PopupBOSS = Instance.new("TextButton")
+PopupBOSS.Size = UDim2.new(1, -8, 0, 28)
+PopupBOSS.Position = UDim2.new(0, 4, 0, 34)
+PopupBOSS.BackgroundColor3 = Theme.bgInput
+PopupBOSS.BorderSizePixel = 0
+PopupBOSS.Text = "BOSS"
+PopupBOSS.TextColor3 = Color3.fromRGB(255, 255, 255)
+PopupBOSS.Font = Enum.Font.Code
+PopupBOSS.TextSize = 11
+PopupBOSS.ZIndex = 51
+PopupBOSS.Parent = PriorityPopup
+local bc = Instance.new("UICorner")
+bc.CornerRadius = UDim.new(0, 3)
+bc.Parent = PopupBOSS
+
+PriorityBtn.MouseButton1Click:Connect(function()
+    PriorityPopup.Visible = not PriorityPopup.Visible
+end)
+
+PopupNPC.MouseButton1Click:Connect(function()
+    AttackPriority = "NPC"
+    PriorityBtn.Text = "ATTACK PRIORITY: NPC"
+    PriorityPopup.Visible = false
+end)
+
+PopupBOSS.MouseButton1Click:Connect(function()
+    AttackPriority = "BOSS"
+    PriorityBtn.Text = "ATTACK PRIORITY: BOSS"
+    PriorityPopup.Visible = false
+end)
+
+local InputLabel = Instance.new("TextLabel")
+InputLabel.Size = UDim2.new(1, 0, 0, 15)
+InputLabel.Position = UDim2.new(0, 0, 0, 65)
+InputLabel.BackgroundTransparency = 1
+InputLabel.Text = "ADD CUSTOM TARGET NAME:"
+InputLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+InputLabel.Font = Enum.Font.Code
+InputLabel.TextSize = 10
+InputLabel.TextXAlignment = Enum.TextXAlignment.Left
+InputLabel.Parent = ConfigContent
+
+local TargetInput = Instance.new("TextBox")
+TargetInput.Size = UDim2.new(0.65, 0, 0, 25)
+TargetInput.Position = UDim2.new(0, 0, 0, 85)
+TargetInput.BackgroundColor3 = Theme.bgInput
+TargetInput.BorderSizePixel = 1
+TargetInput.BorderColor3 = Theme.accent
+TargetInput.PlaceholderText = "Input name..."
+TargetInput.Text = ""
+TargetInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+TargetInput.Font = Enum.Font.Code
+TargetInput.TextSize = 11
+TargetInput.Parent = ConfigContent
+local tic = Instance.new("UICorner")
+tic.CornerRadius = UDim.new(0, 4)
+tic.Parent = TargetInput
+
+local AddBtn = Instance.new("TextButton")
+AddBtn.Size = UDim2.new(0.3, 0, 0, 25)
+AddBtn.Position = UDim2.new(0.7, 0, 0, 85)
+AddBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 250)
+AddBtn.BorderSizePixel = 0
+AddBtn.Text = "ADD"
+AddBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AddBtn.Font = Enum.Font.Code
+AddBtn.TextSize = 12
+AddBtn.Parent = ConfigContent
+local ac = Instance.new("UICorner")
+ac.CornerRadius = UDim.new(0, 4)
+ac.Parent = AddBtn
+
+-- ========== TAB 4: SETTINGS ==========
+local SettingsContent = tabContents[4]
+
+local OpacityLabel = Instance.new("TextLabel")
+OpacityLabel.Size = UDim2.new(1, 0, 0, 15)
+OpacityLabel.Position = UDim2.new(0, 0, 0, 0)
+OpacityLabel.BackgroundTransparency = 1
+OpacityLabel.Text = "UI OPACITY: 100%"
+OpacityLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+OpacityLabel.Font = Enum.Font.Code
+OpacityLabel.TextSize = 10
+OpacityLabel.TextXAlignment = Enum.TextXAlignment.Left
+OpacityLabel.Parent = SettingsContent
+
+local SliderTrack = Instance.new("Frame")
+SliderTrack.Size = UDim2.new(1, -20, 0, 8)
+SliderTrack.Position = UDim2.new(0, 10, 0, 25)
+SliderTrack.BackgroundColor3 = Theme.bgInput
+SliderTrack.BorderSizePixel = 0
+SliderTrack.Parent = SettingsContent
+local stc = Instance.new("UICorner")
+stc.CornerRadius = UDim.new(0, 4)
+stc.Parent = SliderTrack
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new(1, 0, 1, 0)
+SliderFill.BackgroundColor3 = Theme.accent
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = SliderTrack
+local sfc = Instance.new("UICorner")
+sfc.CornerRadius = UDim.new(0, 4)
+sfc.Parent = SliderFill
+
+local SliderKnob = Instance.new("Frame")
+SliderKnob.Size = UDim2.new(0, 14, 0, 14)
+SliderKnob.Position = UDim2.new(1, -7, 0.5, -7)
+SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderKnob.BorderSizePixel = 0
+SliderKnob.ZIndex = 10
+SliderKnob.Parent = SliderTrack
+local skc = Instance.new("UICorner")
+skc.CornerRadius = UDim.new(1, 0)
+skc.Parent = SliderKnob
+
+local ThemeLabel = Instance.new("TextLabel")
+ThemeLabel.Size = UDim2.new(1, 0, 0, 15)
+ThemeLabel.Position = UDim2.new(0, 0, 0, 50)
+ThemeLabel.BackgroundTransparency = 1
+ThemeLabel.Text = "THEME SELECTOR:"
+ThemeLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+ThemeLabel.Font = Enum.Font.Code
+ThemeLabel.TextSize = 10
+ThemeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ThemeLabel.Parent = SettingsContent
+
+-- ========== STATUS BAR ==========
+local InfoText = Instance.new("TextLabel")
+InfoText.Size = UDim2.new(1, -20, 0, 58)
+InfoText.Position = UDim2.new(0, 10, 0, 288)
+InfoText.BackgroundColor3 = Theme.bgLight
+InfoText.BackgroundTransparency = 0.5
+InfoText.BorderSizePixel = 0
+InfoText.Text = "STATUS: STANDBY"
+InfoText.TextColor3 = Color3.fromRGB(0, 255, 255)
+InfoText.Font = Enum.Font.Code
+InfoText.TextSize = 10
+InfoText.TextXAlignment = Enum.TextXAlignment.Left
+InfoText.TextYAlignment = Enum.TextYAlignment.Top
+InfoText.Parent = MainFrame
+local ic = Instance.new("UICorner")
+ic.CornerRadius = UDim.new(0, 4)
+ic.Parent = InfoText
+local ip = Instance.new("UIPadding")
+ip.PaddingTop = UDim.new(0, 4)
+ip.PaddingBottom = UDim.new(0, 4)
+ip.PaddingLeft = UDim.new(0, 6)
+ip.PaddingRight = UDim.new(0, 6)
+ip.Parent = InfoText
+
+-- ========== THEME BUTTONS ==========
+local themeButtons = {}
+for i, themeName in ipairs(ThemeOrder) do
+    local col = (i - 1) % 3
+    local row = math.floor((i - 1) / 3)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 100, 0, 35)
+    btn.Position = UDim2.new(0, col * 104, 0, 72 + row * 40)
+    btn.BackgroundColor3 = Themes[themeName].bgInput
+    btn.BorderSizePixel = 0
+    btn.Text = themeName
+    btn.TextColor3 = Themes[themeName].accent
+    btn.Font = Enum.Font.Code
+    btn.TextSize = 10
+    btn.Parent = SettingsContent
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = btn
+    local s = Instance.new("UIStroke")
+    s.Color = Themes[themeName].accent
+    s.Thickness = 1
+    s.Parent = btn
+    btn.MouseButton1Click:Connect(function()
+        CurrentThemeName = themeName
+        applyTheme(themeName)
+    end)
+    themeButtons[themeName] = {btn = btn, stroke = s}
+end
+
+-- ========== MINIMIZED ICON ==========
+local MinIcon = Instance.new("TextButton")
+MinIcon.Size = UDim2.new(1, 0, 1, 0)
+MinIcon.BackgroundTransparency = 1
+MinIcon.Text = "◆"
+MinIcon.TextColor3 = Theme.accent
+MinIcon.Font = Enum.Font.Code
+MinIcon.TextSize = 26
+MinIcon.Visible = false
+MinIcon.Parent = MainFrame
+
+-- ========== APPLY THEME ==========
+function applyTheme(themeName)
+    local t = Themes[themeName]
+    if not t then return end
+    Theme = t
+    MainFrame.BackgroundColor3 = t.bg
+    TitleBar.BackgroundColor3 = t.bgLight
+    TabBar.BackgroundColor3 = t.bgLight
+    InfoText.BackgroundColor3 = t.bgLight
+    TitleText.TextColor3 = t.accent
+    TitleAccent.BackgroundColor3 = t.accent
+    CloseBtn.TextColor3 = t.accent
+    MinIcon.TextColor3 = t.accent
+    PriorityBtn.TextColor3 = t.accent
+    ps.Color = t.accent
+    pps.Color = t.accent
+    TargetInput.BorderColor3 = t.accent
+    SliderFill.BackgroundColor3 = t.accent
+
+    for i, btn in ipairs(tabButtons) do
+        if i == activeTab then
+            btn.BackgroundColor3 = t.accent
+        else
+            btn.BackgroundColor3 = t.bgInput
+        end
+    end
+
+    local allToggles = {
+        {ToggleBossBtn, AutoKillBossEnabled},
+        {ToggleEnemyBtn, AutoKillEnemyEnabled},
+        {ToggleAutoAttackBtn, AutoAttackEnabled},
+        {ToggleOpsBtn, AutoOpsEnabled},
+        {ToggleRaidBtn, AutoRaidEnabled},
+        {ToggleChestBtn, AutoChestEnabled},
+        {ToggleGodBtn, GodModeEnabled},
+        {ToggleAfkBtn, AntiAfkEnabled},
+    }
+    for _, pair in ipairs(allToggles) do
+        if not pair[2] then
+            pair[1].BackgroundColor3 = t.accent
+        end
+    end
+
+    for name, data in pairs(themeButtons) do
+        data.btn.BackgroundColor3 = t.bgInput
+        data.btn.TextColor3 = t.accent
+        data.stroke.Color = t.accent
+        if name == themeName then
+            data.btn.BackgroundColor3 = t.accent
+            data.btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            data.stroke.Color = Color3.fromRGB(255, 255, 255)
+        end
+    end
+end
+
+-- ========== OPACITY ==========
+local function applyOpacity(v)
+    UIOpacity = v
+    OpacityLabel.Text = "UI OPACITY: " .. math.floor(v * 100) .. "%"
+    MainFrame.BackgroundTransparency = 1 - v
+    TitleBar.BackgroundTransparency = 1 - v
+    TabBar.BackgroundTransparency = 1 - v
+    InfoText.BackgroundTransparency = 1 - (v * 0.5)
+end
+
+-- Slider drag
+local sliderDragging = false
+SliderTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if sliderDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local relX = input.Position.X - SliderTrack.AbsolutePosition.X
+        local pct = math.clamp(relX / SliderTrack.AbsoluteSize.X, 0, 1)
+        applyOpacity(0.3 + pct * 0.7)
+        SliderFill.Size = UDim2.new(pct, 0, 1, 0)
+        SliderKnob.Position = UDim2.new(pct, -7, 0.5, -7)
+    end
+end)
+
+-- ========== DRAG MAIN (from TitleBar) ==========
+local draggingMain = false
+local dragStart, startPos
+
+local function attachDrag(zone)
+    zone.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            draggingMain = true
+            dragStart = input.Position
+            startPos = MainFrame.Position
+        end
+    end)
+end
+
+attachDrag(TitleBar)
+attachDrag(TitleText)
+attachDrag(TitleAccent)
+
+-- MinIcon drag + click
+local minDragging = false
+local minWasDragged = false
+local minDragStart, minDragPos
+
+MinIcon.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        minDragging = true
+        minWasDragged = false
+        minDragStart = input.Position
+        minDragPos = MainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingMain and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+    if minDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - minDragStart
+        if delta.Magnitude > 6 then minWasDragged = true end
+        MainFrame.Position = UDim2.new(minDragPos.X.Scale, minDragPos.X.Offset + delta.X, minDragPos.Y.Scale, minDragPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingMain = false
+        minDragging = false
+    end
+end)
+
+-- ========== MIN/MAX ==========
+local isMinimized = false
+
+local function minimize()
+    isMinimized = true
+    MainFrame.Size = UDim2.new(0, 50, 0, 50)
+    TitleBar.Visible = false
+    TabBar.Visible = false
+    for _, c in ipairs(tabContents) do c.Visible = false end
+    InfoText.Visible = false
+    MinIcon.Visible = true
+end
+
+local function maximize()
+    isMinimized = false
+    MainFrame.Size = UDim2.new(0, FRAME_W, 0, FRAME_H)
+    TitleBar.Visible = true
+    TabBar.Visible = true
+    InfoText.Visible = true
+    setActiveTab(activeTab)
+    MinIcon.Visible = false
+end
+
+MinBtn.MouseButton1Click:Connect(minimize)
+MinIcon.MouseButton1Click:Connect(function()
+    if not minWasDragged then maximize() end
+    minWasDragged = false
+end)
+
+-- ========== TOGGLE HANDLERS ==========
+local function styleToggle(btn, enabled, label)
+    btn.Text = label .. " : " .. (enabled and "ON" or "OFF")
+    btn.BackgroundColor3 = enabled and Color3.fromRGB(50, 200, 50) or Theme.accent
+end
+
+ToggleBossBtn.MouseButton1Click:Connect(function()
+    AutoKillBossEnabled = not AutoKillBossEnabled
+    styleToggle(ToggleBossBtn, AutoKillBossEnabled, "INSTANT KILL BOSS")
+end)
+
+ToggleEnemyBtn.MouseButton1Click:Connect(function()
+    AutoKillEnemyEnabled = not AutoKillEnemyEnabled
+    styleToggle(ToggleEnemyBtn, AutoKillEnemyEnabled, "INSTANT KILL NPC")
+end)
+
+ToggleAutoAttackBtn.MouseButton1Click:Connect(function()
+    AutoAttackEnabled = not AutoAttackEnabled
+    styleToggle(ToggleAutoAttackBtn, AutoAttackEnabled, "AUTO ATTACK (MELEE)")
+end)
+
+ToggleOpsBtn.MouseButton1Click:Connect(function()
+    AutoOpsEnabled = not AutoOpsEnabled
+    styleToggle(ToggleOpsBtn, AutoOpsEnabled, "AUTO START OPS")
+end)
+
+ToggleRaidBtn.MouseButton1Click:Connect(function()
+    AutoRaidEnabled = not AutoRaidEnabled
+    styleToggle(ToggleRaidBtn, AutoRaidEnabled, "AUTO REPLAY RAID")
+end)
+
+ToggleChestBtn.MouseButton1Click:Connect(function()
+    AutoChestEnabled = not AutoChestEnabled
+    styleToggle(ToggleChestBtn, AutoChestEnabled, "AUTO OPEN CHEST")
+end)
+
+ToggleGodBtn.MouseButton1Click:Connect(function()
+    GodModeEnabled = not GodModeEnabled
+    styleToggle(ToggleGodBtn, GodModeEnabled, "GOD MODE")
+end)
+
+ToggleAfkBtn.MouseButton1Click:Connect(function()
+    AntiAfkEnabled = not AntiAfkEnabled
+    styleToggle(ToggleAfkBtn, AntiAfkEnabled, "ANTI AFK")
+end)
+
+AddBtn.MouseButton1Click:Connect(function()
+    local newName = string.lower(TargetInput.Text):match("^%s*(.-)%s*$")
+    if newName ~= "" then
+        table.insert(BossNames, newName)
+        table.insert(EnemyNames, newName)
+        table.insert(getgenv().UniSc_CustomTargets, newName)
+        InfoText.Text = "STATUS: ADDED TARGET\nNAME: " .. newName
+        TargetInput.Text = ""
+    else
+        InfoText.Text = "STATUS: INPUT EMPTY"
+    end
+end)
+
+local function Cleanup()
+    isAlive = false
+    if ScreenGui then ScreenGui:Destroy() end
+    getgenv().UniSc_Persistent = nil
+    getgenv().UniSc_GUI = nil
+end
+CloseBtn.MouseButton1Click:Connect(Cleanup)
+
+-- ==========================================
+-- LOGIKA AUTO START OPS
+-- ==========================================
+task.spawn(function()
+    local FORCE_FIRE_TIMEOUT = 12
+    local lastFire = 0
+    local function isBossAlive()
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj.ClassName == "Model" then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local nameLower = string.lower(obj.Name)
+                    for _, bName in ipairs(BossNames) do
+                        if string.find(nameLower, bName, 1, true) then return true end
+                    end
+                end
+            end
+        end
+        return false
+    end
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoOpsEnabled then
+            local now = tick()
+            local elapsed = now - lastFire
+            if elapsed >= RAND_OPS then
+                local bossAlive = isBossAlive()
+                if not bossAlive or elapsed >= FORCE_FIRE_TIMEOUT then
+                    pcall(function()
+                        local OpsRemote = ReplicatedStorage:FindFirstChild("OD_Remotes") and ReplicatedStorage.OD_Remotes:FindFirstChild("Ops")
+                        if OpsRemote then
+                            OpsRemote:FireServer("create", {
+                                ["location"] = "CorpSpire",
+                                ["conditions"] = {"GlassBody", "NoImplants"},
+                                ["directive"] = "Boss"
+                            })
+                            InfoText.Text = "STATUS: REQUESTING OPS...\nWAITING FOR BOSS"
+                        end
+                    end)
+                    lastFire = now
+                else
+                    InfoText.Text = "STATUS: BOSS ACTIVE\nWAITING FOR KILL..."
+                end
+            end
+            task.wait(0.75)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA AUTO REPLAY RAID
+-- ==========================================
+task.spawn(function()
+    local lastFire = 0
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoRaidEnabled then
+            local now = tick()
+            if now - lastFire >= RAND_RAID then
+                pcall(function()
+                    local RaidChoiceRemote = ReplicatedStorage:FindFirstChild("OD_Remotes") and ReplicatedStorage.OD_Remotes:FindFirstChild("RaidChoice")
+                    if RaidChoiceRemote then
+                        RaidChoiceRemote:FireServer("again")
+                        InfoText.Text = "STATUS: REPLAYING RAID..."
+                    end
+                end)
+                lastFire = now
+            end
+            task.wait(0.5)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA AUTO OPEN CHEST
+-- ==========================================
+task.spawn(function()
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoChestEnabled then
+            pcall(function()
+                local OD_Remotes = ReplicatedStorage:FindFirstChild("OD_Remotes")
+                local CrateRemote = OD_Remotes and OD_Remotes:FindFirstChild("Crate")
+                if CrateRemote then
+                    for i = 1, 10 do CrateRemote:FireServer("chest", i) end
+                    InfoText.Text = "STATUS: OPENING CHEST..."
+                end
+            end)
+            task.wait(RAND_CHEST)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA GOD MODE
+-- ==========================================
+RunService.Heartbeat:Connect(function()
+    if GodModeEnabled and isAlive then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if hum.MaxHealth < 1e8 then hum.MaxHealth = 1e8 end
+            if hum.Health < hum.MaxHealth then hum.Health = hum.MaxHealth end
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA ANTI AFK
+-- ==========================================
+task.spawn(function()
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AntiAfkEnabled then
+            pcall(function()
+                local vu = game:GetService("VirtualUser")
+                vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                task.wait(0.1)
+                vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
+        end
+        task.wait(45 + math.random(0, 30))
+    end
+end)
+
+-- ==========================================
+-- LOGIKA AUTO ATTACK (TELEPORT BEHIND + MELEE SPAM)
+-- ==========================================
+local function findTargetByPriority()
+    local char = LocalPlayer.Character
+    local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+    local myPos = myRoot.Position
+    local primaryNames = (AttackPriority == "BOSS") and BossNames or EnemyNames
+    local fallbackNames = (AttackPriority == "BOSS") and EnemyNames or BossNames
+
+    local function find(names)
+        local best, bestD = nil, math.huge
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj.ClassName == "Model" then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local nameLower = string.lower(obj.Name)
+                    local matched = false
+                    for _, n in ipairs(names) do
+                        if string.find(nameLower, n, 1, true) then matched = true; break end
+                    end
+                    if matched then
+                        local root = obj:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local d = (root.Position - myPos).Magnitude
+                            if d < bestD and d <= MAX_DISTANCE then
+                                bestD = d
+                                best = obj
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    return find(primaryNames) or find(fallbackNames)
+end
+
+task.spawn(function()
+    local lastAttack = 0
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoAttackEnabled then
+            local now = tick()
+            if now - lastAttack >= RAND_ATTACK then
+                local char = LocalPlayer.Character
+                local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+                if myRoot then
+                    local target = findTargetByPriority()
+                    if target then
+                        local npcRoot = target:FindFirstChild("HumanoidRootPart")
+                        if npcRoot then
+                            -- Teleport behind NPC, facing same direction (facing NPC's back)
+                            pcall(function()
+                                local behindPos = npcRoot.Position
+                                    - npcRoot.CFrame.LookVector * 3.2
+                                    + Vector3.new(0, 1.2, 0)
+                                myRoot.CFrame = CFrame.new(behindPos, behindPos + npcRoot.CFrame.LookVector)
+                            end)
+                            -- Fire melee
+                            pcall(function()
+                                local CombatRemote = ReplicatedStorage:FindFirstChild("OD_Remotes")
+                                    and ReplicatedStorage.OD_Remotes:FindFirstChild("Combat")
+                                if CombatRemote then
+                                    CombatRemote:FireServer("light")
+                                    CombatRemote:FireServer("hit", {target})
+                                end
+                            end)
+                            -- Activate held tool as backup
+                            pcall(function()
+                                local tool = char:FindFirstChildOfClass("Tool")
+                                if tool then tool:Activate() end
+                            end)
+                            InfoText.Text = "STATUS: AUTO ATTACK\nTARGET: " .. target.Name
+                        end
+                    else
+                        InfoText.Text = "STATUS: AUTO ATTACK\nNO TARGET IN RANGE"
+                    end
+                end
+                lastAttack = now
+            end
+            task.wait(0.05)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA INSTANT KILL (OPTIMIZED)
+-- ==========================================
+task.spawn(function()
+    local SCAN_INTERVAL = RAND_KILL
+    local cachedChar = nil
+    local cachedRoot = nil
+    local lastStatus = ""
+
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        task.wait(SCAN_INTERVAL + math.random() * 0.06)
+
+        if not (AutoKillBossEnabled or AutoKillEnemyEnabled) then
+            cachedChar = nil
+            cachedRoot = nil
+            task.wait(0.5)
+        else
+            if cachedChar ~= LocalPlayer.Character or (cachedRoot and not cachedRoot.Parent) then
+                cachedChar = LocalPlayer.Character
+                cachedRoot = cachedChar and cachedChar:FindFirstChild("HumanoidRootPart")
+            end
+
+            if cachedRoot then
+                local myPos = cachedRoot.Position
+                local found = false
+
+                local function tryKill(obj)
+                    if obj.ClassName ~= "Model" then return false end
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health <= 0 then return false end
+                    local nameLower = string.lower(obj.Name)
+                    local targetType = nil
+                    if AutoKillBossEnabled then
+                        for _, bName in ipairs(BossNames) do
+                            if string.find(nameLower, bName, 1, true) then targetType = "BOSS"; break end
+                        end
+                    end
+                    if not targetType and AutoKillEnemyEnabled then
+                        for _, eName in ipairs(EnemyNames) do
+                            if string.find(nameLower, eName, 1, true) then targetType = "NPC"; break end
+                        end
+                    end
+                    if not targetType then return false end
+                    local targetRoot = obj:FindFirstChild("HumanoidRootPart")
+                        or obj.PrimaryPart or obj:FindFirstChild("Head")
+                    if not targetRoot then return false end
+                    local distance = (targetRoot.Position - myPos).Magnitude
+                    if distance > MAX_DISTANCE then return false end
+                    pcall(function() hum.Health = 0 end)
+                    pcall(function() hum:TakeDamage(999999999) end)
+                    pcall(function()
+                        local tool = cachedChar:FindFirstChildOfClass("Tool")
+                        if tool then tool:Activate() end
+                    end)
+                    InfoText.Text = "STATUS: KILLED " .. targetType .. "\nTARGET: " .. obj.Name .. "\nDIST: " .. math.floor(distance) .. " STUDS"
+                    return true
+                end
+
+                for _, obj in ipairs(Workspace:GetChildren()) do
+                    local className = obj.ClassName
+                    if className == "Model" then
+                        if tryKill(obj) then found = true; break end
+                    elseif className == "Folder" then
+                        local children = obj:GetChildren()
+                        if #children > 0 then
+                            for _, sub in ipairs(children) do
+                                if sub.ClassName == "Model" and tryKill(sub) then
+                                    found = true
+                                    break
+                                end
+                            end
+                        end
+                        if found then break end
+                    end
+                end
+
+                if not found and not AutoOpsEnabled then
+                    local newStatus = "STATUS: SCANNING (<= " .. MAX_DISTANCE .. " STUDS)...\nNO TARGETS IN RANGE"
+                    if lastStatus ~= newStatus then
+                        InfoText.Text = newStatus
+                        lastStatus = newStatus
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- ANIMASI UI (PULSE ACCENT)
+-- ==========================================
+RunService.Heartbeat:Connect(function()
+    if not isAlive or not ScreenGui or not ScreenGui.Parent then return end
+    local pulse = 0.5 + 0.5 * math.sin(tick() * 2.2)
+    local darker = Theme.accent:Lerp(Color3.new(0, 0, 0), 0.55)
+    local c = darker:Lerp(Theme.accent, pulse)
+    pcall(function() UIStroke.Color = c end)
+end)
+
+-- Init theme display
+applyTheme(CurrentThemeName)
+applyOpacity(1.0)
+]==]
+
+-- AUTO EXECUTE SAAT TELEPORT (Delta Executor)
+pcall(function()
+    queue_on_teleport(script_source)
+end)
+
+-- EKSEKUSI UTAMA
+local func, err = loadstring(script_source)
+if func then
+    func()
+else
+    warn("[UniSc] Gagal load script: " .. tostring(err))
+end
