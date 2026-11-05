@@ -19,11 +19,11 @@ local LocalPlayer = Players.LocalPlayer
 local TARGET_GAME_ID = 10770345022
 local TARGET_CREATOR_ID = 271175179
 
-if game.GameId ~= TARGET_GAME_ID or game.PlaceId ~= TARGET_PLACE_ID or game.CreatorId ~= TARGET_CREATOR_ID then
+if game.GameId ~= TARGET_GAME_ID or game.CreatorId ~= TARGET_CREATOR_ID then
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = "Over Cyber Psycho",
-            Text = "Script tidak mendukung experience yang tidak sesuai game ID dan script gagal load.",
+            Text = "Script tidak mendukung experience script gagal load.",
             Duration = 10,
             Icon = "rbxassetid://7536194838" -- Ikon warning/error
         })
