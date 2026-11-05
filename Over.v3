@@ -1,0 +1,1047 @@
+-- Menyimpan source code ke variabel untuk di-queue saat teleport
+local script_source = [==[
+-- Anti-Detection: Delay acak sebelum eksekusi
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(0.1 + math.random() * 0.5)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = Players.LocalPlayer
+
+-- ==========================================
+-- RANDOMIZED TIMING PER SESSION (ANTI-DETECTION)
+-- ==========================================
+local SESSION_JITTER = 0.85 + math.random() * 0.3 -- 0.85x - 1.15x bias per session
+local function jit(base)
+    return base * SESSION_JITTER * (0.92 + math.random() * 0.16)
+end
+
+-- FITUR PERSISTENCE (Anti-Wipe)
+if getgenv().UniSc_Persistent then
+    if getgenv().UniSc_GUI and not getgenv().UniSc_GUI.Parent then
+        getgenv().UniSc_GUI.Parent = getGuiParent()
+    end
+    return
+end
+getgenv().UniSc_Persistent = true
+getgenv().UniSc_CustomTargets = getgenv().UniSc_CustomTargets or {}
+
+-- ==========================================
+-- KONFIGURASI ARRAY & JARAK
+-- ==========================================
+local BossNames = {
+    "ironvale sentinel", "black ice", "dragon lord", "the warden"
+}
+local EnemyNames = {
+    "ironvale drone", "ice ghost", "enemy", "mob", "helix trooper",
+    "razorback", "boss"
+}
+local MAX_DISTANCE = 130
+
+for _, customName in ipairs(getgenv().UniSc_CustomTargets) do
+    table.insert(BossNames, customName)
+    table.insert(EnemyNames, customName)
+end
+-- ==========================================
+
+-- ==========================================
+-- THEMES
+-- ==========================================
+local Themes = {
+    CyberRed = {
+        Name = "Cyber Red",
+        Main = Color3.fromRGB(10, 12, 16),
+        Panel = Color3.fromRGB(15, 18, 25),
+        Input = Color3.fromRGB(20, 24, 30),
+        Accent = Color3.fromRGB(255, 50, 50),
+        AccentLight = Color3.fromRGB(255, 165, 0),
+        SubText = Color3.fromRGB(0, 255, 255),
+    },
+    NeonBlue = {
+        Name = "Neon Blue",
+        Main = Color3.fromRGB(8, 10, 22),
+        Panel = Color3.fromRGB(12, 16, 32),
+        Input = Color3.fromRGB(18, 24, 42),
+        Accent = Color3.fromRGB(0, 180, 255),
+        AccentLight = Color3.fromRGB(0, 255, 220),
+        SubText = Color3.fromRGB(150, 220, 255),
+    },
+    Toxic = {
+        Name = "Toxic",
+        Main = Color3.fromRGB(8, 16, 10),
+        Panel = Color3.fromRGB(12, 22, 14),
+        Input = Color3.fromRGB(18, 32, 22),
+        Accent = Color3.fromRGB(50, 255, 100),
+        AccentLight = Color3.fromRGB(200, 255, 50),
+        SubText = Color3.fromRGB(180, 255, 200),
+    },
+    Purple = {
+        Name = "Purple",
+        Main = Color3.fromRGB(15, 10, 22),
+        Panel = Color3.fromRGB(22, 15, 32),
+        Input = Color3.fromRGB(30, 22, 45),
+        Accent = Color3.fromRGB(180, 80, 255),
+        AccentLight = Color3.fromRGB(255, 100, 220),
+        SubText = Color3.fromRGB(220, 180, 255),
+    },
+    Sunset = {
+        Name = "Sunset",
+        Main = Color3.fromRGB(20, 10, 8),
+        Panel = Color3.fromRGB(30, 16, 12),
+        Input = Color3.fromRGB(42, 24, 18),
+        Accent = Color3.fromRGB(255, 140, 50),
+        AccentLight = Color3.fromRGB(255, 220, 100),
+        SubText = Color3.fromRGB(255, 200, 150),
+    },
+    Mono = {
+        Name = "Mono",
+        Main = Color3.fromRGB(15, 15, 15),
+        Panel = Color3.fromRGB(25, 25, 25),
+        Input = Color3.fromRGB(35, 35, 35),
+        Accent = Color3.fromRGB(200, 200, 200),
+        AccentLight = Color3.fromRGB(240, 240, 240),
+        SubText = Color3.fromRGB(180, 180, 180),
+    },
+}
+
+local CurrentTheme = "CyberRed"
+-- ==========================================
+
+local function getGuiParent()
+    local success, hui = pcall(function() return gethui() end)
+    if success and hui then return hui end
+    local success2, core = pcall(function() return game:GetService("CoreGui") end)
+    if success2 and core then return core end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local AutoKillBossEnabled = false
+local AutoKillEnemyEnabled = false
+local AutoOpsEnabled = false
+local AutoRaidEnabled = false
+local AutoChestEnabled = false
+local AutoAntiAFKEnabled = true
+local isAlive = true
+local currentOpacity = 1.0
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CyberUniversalInstaKill"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = getGuiParent()
+getgenv().UniSc_GUI = ScreenGui
+
+-- ==========================================
+-- MAIN FRAME
+-- ==========================================
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 320, 0, 300)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -150)
+MainFrame.BackgroundColor3 = Themes[CurrentTheme].Main
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Themes[CurrentTheme].Accent
+UIStroke.Thickness = 1.5
+UIStroke.Parent = MainFrame
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 6)
+UICorner.Parent = MainFrame
+
+-- ============ TITLE BAR ============
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 32)
+TitleBar.BackgroundColor3 = Themes[CurrentTheme].Panel
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleBarCorner = Instance.new("UICorner")
+TitleBarCorner.CornerRadius = UDim.new(0, 6)
+TitleBarCorner.Parent = TitleBar
+
+local TitleAccent = Instance.new("Frame")
+TitleAccent.Size = UDim2.new(0, 3, 0, 18)
+TitleAccent.Position = UDim2.new(0, 10, 0.5, -9)
+TitleAccent.BackgroundColor3 = Themes[CurrentTheme].Accent
+TitleAccent.BorderSizePixel = 0
+TitleAccent.Parent = TitleBar
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -90, 1, 0)
+TitleText.Position = UDim2.new(0, 18, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "[ OPS FARMER ]"
+TitleText.TextColor3 = Themes[CurrentTheme].Accent
+TitleText.Font = Enum.Font.Code
+TitleText.TextSize = 13
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = TitleBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 32, 1, 0)
+MinBtn.Position = UDim2.new(1, -68, 0, 0)
+MinBtn.BackgroundTransparency = 1
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinBtn.Font = Enum.Font.Code
+MinBtn.TextSize = 14
+MinBtn.Parent = TitleBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 32, 1, 0)
+CloseBtn.Position = UDim2.new(1, -32, 0, 0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
+CloseBtn.Font = Enum.Font.Code
+CloseBtn.TextSize = 14
+CloseBtn.Parent = TitleBar
+
+-- ============ TAB BAR ============
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -20, 0, 28)
+TabBar.Position = UDim2.new(0, 10, 0, 38)
+TabBar.BackgroundColor3 = Themes[CurrentTheme].Panel
+TabBar.BorderSizePixel = 0
+TabBar.Parent = MainFrame
+
+local TabBarCorner = Instance.new("UICorner")
+TabBarCorner.CornerRadius = UDim.new(0, 4)
+TabBarCorner.Parent = TabBar
+
+local tabNames = {"KILL", "AUTO", "CONFIG", "SETTINGS"}
+local tabButtons = {}
+local tabContents = {}
+local activeTab = 1
+
+for i, name in ipairs(tabNames) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1/#tabNames, -4, 1, 0)
+    btn.Position = UDim2.new((i-1)/#tabNames, 2, 0, 0)
+    btn.BackgroundColor3 = Themes[CurrentTheme].Input
+    btn.BorderSizePixel = 0
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    btn.Font = Enum.Font.Code
+    btn.TextSize = 11
+    btn.Parent = TabBar
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 3)
+    c.Parent = btn
+    tabButtons[i] = btn
+end
+
+for i = 1, #tabNames do
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, -20, 0, 160)
+    f.Position = UDim2.new(0, 10, 0, 72)
+    f.BackgroundTransparency = 1
+    f.Visible = (i == 1)
+    f.Parent = MainFrame
+    tabContents[i] = f
+end
+
+-- ============ TAB 1: KILL ============
+local KillContent = tabContents[1]
+
+local RangeInfo = Instance.new("TextLabel")
+RangeInfo.Size = UDim2.new(1, 0, 0, 15)
+RangeInfo.Position = UDim2.new(0, 0, 0, 0)
+RangeInfo.BackgroundTransparency = 1
+RangeInfo.Text = "RANGE LIMIT: " .. MAX_DISTANCE .. " STUDS"
+RangeInfo.TextColor3 = Themes[CurrentTheme].AccentLight
+RangeInfo.Font = Enum.Font.Code
+RangeInfo.TextSize = 10
+RangeInfo.TextXAlignment = Enum.TextXAlignment.Left
+RangeInfo.Parent = KillContent
+
+local ToggleBossBtn = Instance.new("TextButton")
+ToggleBossBtn.Size = UDim2.new(1, 0, 0, 30)
+ToggleBossBtn.Position = UDim2.new(0, 0, 0, 20)
+ToggleBossBtn.BackgroundColor3 = Themes[CurrentTheme].Accent
+ToggleBossBtn.BorderSizePixel = 0
+ToggleBossBtn.Text = "INSTANT KILL BOSS : OFF"
+ToggleBossBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBossBtn.Font = Enum.Font.Code
+ToggleBossBtn.TextSize = 11
+ToggleBossBtn.Parent = KillContent
+
+local ToggleEnemyBtn = Instance.new("TextButton")
+ToggleEnemyBtn.Size = UDim2.new(1, 0, 0, 30)
+ToggleEnemyBtn.Position = UDim2.new(0, 0, 0, 55)
+ToggleEnemyBtn.BackgroundColor3 = Themes[CurrentTheme].Accent
+ToggleEnemyBtn.BorderSizePixel = 0
+ToggleEnemyBtn.Text = "INSTANT KILL NPC : OFF"
+ToggleEnemyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleEnemyBtn.Font = Enum.Font.Code
+ToggleEnemyBtn.TextSize = 11
+ToggleEnemyBtn.Parent = KillContent
+
+-- ============ TAB 2: AUTO ============
+local AutoContent = tabContents[2]
+
+local ToggleOpsBtn = Instance.new("TextButton")
+ToggleOpsBtn.Size = UDim2.new(1, 0, 0, 30)
+ToggleOpsBtn.Position = UDim2.new(0, 0, 0, 0)
+ToggleOpsBtn.BackgroundColor3 = Themes[CurrentTheme].Accent
+ToggleOpsBtn.BorderSizePixel = 0
+ToggleOpsBtn.Text = "AUTO START OPS : OFF"
+ToggleOpsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleOpsBtn.Font = Enum.Font.Code
+ToggleOpsBtn.TextSize = 11
+ToggleOpsBtn.Parent = AutoContent
+
+local ToggleRaidBtn = Instance.new("TextButton")
+ToggleRaidBtn.Size = UDim2.new(1, 0, 0, 30)
+ToggleRaidBtn.Position = UDim2.new(0, 0, 0, 35)
+ToggleRaidBtn.BackgroundColor3 = Themes[CurrentTheme].Accent
+ToggleRaidBtn.BorderSizePixel = 0
+ToggleRaidBtn.Text = "AUTO REPLAY RAID : OFF"
+ToggleRaidBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleRaidBtn.Font = Enum.Font.Code
+ToggleRaidBtn.TextSize = 11
+ToggleRaidBtn.Parent = AutoContent
+
+local ToggleChestBtn = Instance.new("TextButton")
+ToggleChestBtn.Size = UDim2.new(1, 0, 0, 30)
+ToggleChestBtn.Position = UDim2.new(0, 0, 0, 70)
+ToggleChestBtn.BackgroundColor3 = Themes[CurrentTheme].Accent
+ToggleChestBtn.BorderSizePixel = 0
+ToggleChestBtn.Text = "AUTO OPEN CHEST : OFF"
+ToggleChestBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleChestBtn.Font = Enum.Font.Code
+ToggleChestBtn.TextSize = 11
+ToggleChestBtn.Parent = AutoContent
+
+-- ============ TAB 3: CONFIG ============
+local ConfigContent = tabContents[3]
+
+local InputLabel = Instance.new("TextLabel")
+InputLabel.Size = UDim2.new(1, 0, 0, 15)
+InputLabel.Position = UDim2.new(0, 0, 0, 0)
+InputLabel.BackgroundTransparency = 1
+InputLabel.Text = "ADD CUSTOM TARGET NAME:"
+InputLabel.TextColor3 = Themes[CurrentTheme].SubText
+InputLabel.Font = Enum.Font.Code
+InputLabel.TextSize = 10
+InputLabel.TextXAlignment = Enum.TextXAlignment.Left
+InputLabel.Parent = ConfigContent
+
+local TargetInput = Instance.new("TextBox")
+TargetInput.Size = UDim2.new(0.65, 0, 0, 25)
+TargetInput.Position = UDim2.new(0, 0, 0, 20)
+TargetInput.BackgroundColor3 = Themes[CurrentTheme].Input
+TargetInput.BorderSizePixel = 1
+TargetInput.BorderColor3 = Color3.fromRGB(50, 60, 75)
+TargetInput.PlaceholderText = "Input name..."
+TargetInput.Text = ""
+TargetInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+TargetInput.Font = Enum.Font.Code
+TargetInput.TextSize = 11
+TargetInput.Parent = ConfigContent
+
+local AddBtn = Instance.new("TextButton")
+AddBtn.Size = UDim2.new(0.3, 0, 0, 25)
+AddBtn.Position = UDim2.new(0.7, 0, 0, 20)
+AddBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 250)
+AddBtn.BorderSizePixel = 0
+AddBtn.Text = "ADD"
+AddBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AddBtn.Font = Enum.Font.Code
+AddBtn.TextSize = 12
+AddBtn.Parent = ConfigContent
+
+-- ANTI-AFK (di CONFIG tab)
+local ToggleAntiAFKBtn = Instance.new("TextButton")
+ToggleAntiAFKBtn.Size = UDim2.new(1, 0, 0, 30)
+ToggleAntiAFKBtn.Position = UDim2.new(0, 0, 0, 55)
+ToggleAntiAFKBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- default ON
+ToggleAntiAFKBtn.BorderSizePixel = 0
+ToggleAntiAFKBtn.Text = "ANTI-AFK : ON"
+ToggleAntiAFKBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleAntiAFKBtn.Font = Enum.Font.Code
+ToggleAntiAFKBtn.TextSize = 11
+ToggleAntiAFKBtn.Parent = ConfigContent
+
+-- ============ TAB 4: SETTINGS ============
+local SettingsContent = tabContents[4]
+
+-- Opacity label
+local OpacityLabel = Instance.new("TextLabel")
+OpacityLabel.Size = UDim2.new(1, 0, 0, 15)
+OpacityLabel.Position = UDim2.new(0, 0, 0, 0)
+OpacityLabel.BackgroundTransparency = 1
+OpacityLabel.Text = "UI OPACITY : 100%"
+OpacityLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+OpacityLabel.Font = Enum.Font.Code
+OpacityLabel.TextSize = 10
+OpacityLabel.TextXAlignment = Enum.TextXAlignment.Left
+OpacityLabel.Parent = SettingsContent
+
+-- Opacity slider track
+local OpacityTrack = Instance.new("Frame")
+OpacityTrack.Size = UDim2.new(1, 0, 0, 8)
+OpacityTrack.Position = UDim2.new(0, 0, 0, 20)
+OpacityTrack.BackgroundColor3 = Themes[CurrentTheme].Input
+OpacityTrack.BorderSizePixel = 0
+OpacityTrack.Parent = SettingsContent
+local OTCorner = Instance.new("UICorner")
+OTCorner.CornerRadius = UDim.new(0, 4)
+OTCorner.Parent = OpacityTrack
+
+local OpacityFill = Instance.new("Frame")
+OpacityFill.Size = UDim2.new(1.0, 0, 1, 0)
+OpacityFill.BackgroundColor3 = Themes[CurrentTheme].Accent
+OpacityFill.BorderSizePixel = 0
+OpacityFill.Parent = OpacityTrack
+local OFCorner = Instance.new("UICorner")
+OFCorner.CornerRadius = UDim.new(0, 4)
+OFCorner.Parent = OpacityFill
+
+local OpacityKnob = Instance.new("Frame")
+OpacityKnob.Size = UDim2.new(0, 14, 0, 14)
+OpacityKnob.Position = UDim2.new(1.0, -7, 0.5, -7)
+OpacityKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+OpacityKnob.BorderSizePixel = 0
+OpacityKnob.Parent = OpacityTrack
+local OKCorner = Instance.new("UICorner")
+OKCorner.CornerRadius = UDim.new(0, 7)
+OKCorner.Parent = OpacityKnob
+
+-- Theme label
+local ThemeLabel = Instance.new("TextLabel")
+ThemeLabel.Size = UDim2.new(1, 0, 0, 15)
+ThemeLabel.Position = UDim2.new(0, 0, 0, 40)
+ThemeLabel.BackgroundTransparency = 1
+ThemeLabel.Text = "THEME:"
+ThemeLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+ThemeLabel.Font = Enum.Font.Code
+ThemeLabel.TextSize = 10
+ThemeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ThemeLabel.Parent = SettingsContent
+
+-- ============ INFO / STATUS BAR ============
+local InfoText = Instance.new("TextLabel")
+InfoText.Size = UDim2.new(1, -20, 0, 52)
+InfoText.Position = UDim2.new(0, 10, 0, 240)
+InfoText.BackgroundColor3 = Themes[CurrentTheme].Panel
+InfoText.BackgroundTransparency = 0.5
+InfoText.BorderSizePixel = 0
+InfoText.Text = "STATUS: STANDBY"
+InfoText.TextColor3 = Themes[CurrentTheme].SubText
+InfoText.Font = Enum.Font.Code
+InfoText.TextSize = 10
+InfoText.TextXAlignment = Enum.TextXAlignment.Left
+InfoText.TextYAlignment = Enum.TextYAlignment.Top
+InfoText.Parent = MainFrame
+
+local InfoCorner = Instance.new("UICorner")
+InfoCorner.CornerRadius = UDim.new(0, 4)
+InfoCorner.Parent = InfoText
+
+local InfoPadding = Instance.new("UIPadding")
+InfoPadding.PaddingTop = UDim.new(0, 4)
+InfoPadding.PaddingBottom = UDim.new(0, 4)
+InfoPadding.PaddingLeft = UDim.new(0, 6)
+InfoPadding.PaddingRight = UDim.new(0, 6)
+InfoPadding.Parent = InfoText
+
+-- ============ MINIMIZED ICON ============
+local MinIcon = Instance.new("TextButton")
+MinIcon.Size = UDim2.new(1, 0, 1, 0)
+MinIcon.BackgroundTransparency = 1
+MinIcon.Text = "◆"
+MinIcon.TextColor3 = Themes[CurrentTheme].Accent
+MinIcon.Font = Enum.Font.Code
+MinIcon.TextSize = 26
+MinIcon.Visible = false
+MinIcon.ZIndex = 10
+MinIcon.Parent = MainFrame
+
+-- ==========================================
+-- OPACITY SYSTEM
+-- ==========================================
+local opacityElements = {}
+local function regOpacity(elem)
+    table.insert(opacityElements, {elem = elem, base = elem.BackgroundTransparency})
+end
+
+regOpacity(MainFrame)
+regOpacity(TitleBar)
+regOpacity(TabBar)
+regOpacity(InfoText)
+regOpacity(TargetInput)
+regOpacity(AddBtn)
+for _, btn in ipairs(tabButtons) do regOpacity(btn) end
+regOpacity(ToggleBossBtn)
+regOpacity(ToggleEnemyBtn)
+regOpacity(ToggleOpsBtn)
+regOpacity(ToggleRaidBtn)
+regOpacity(ToggleChestBtn)
+regOpacity(ToggleAntiAFKBtn)
+regOpacity(OpacityTrack)
+regOpacity(OpacityFill)
+
+local function applyOpacity(alpha)
+    currentOpacity = alpha
+    for _, t in ipairs(opacityElements) do
+        if t.base < 1 then
+            t.elem.BackgroundTransparency = 1 - ((1 - t.base) * alpha)
+        end
+    end
+end
+
+-- ==========================================
+-- THEME SYSTEM
+-- ==========================================
+local function applyTheme(themeKey)
+    local theme = Themes[themeKey]
+    if not theme then return end
+
+    CurrentTheme = themeKey
+    MainFrame.BackgroundColor3 = theme.Main
+    TitleBar.BackgroundColor3 = theme.Panel
+    TabBar.BackgroundColor3 = theme.Panel
+    TitleAccent.BackgroundColor3 = theme.Accent
+    TitleText.TextColor3 = theme.Accent
+    InfoText.BackgroundColor3 = theme.Panel
+    InfoText.TextColor3 = theme.SubText
+    RangeInfo.TextColor3 = theme.AccentLight
+    InputLabel.TextColor3 = theme.SubText
+    TargetInput.BackgroundColor3 = theme.Input
+    MinIcon.TextColor3 = theme.Accent
+    OpacityTrack.BackgroundColor3 = theme.Input
+    OpacityFill.BackgroundColor3 = theme.Accent
+    UIStroke.Color = theme.Accent
+
+    -- Refresh tab buttons
+    for i, btn in ipairs(tabButtons) do
+        if i == activeTab then
+            btn.BackgroundColor3 = theme.Accent
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            btn.BackgroundColor3 = theme.Input
+            btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
+    end
+
+    -- Refresh toggle buttons
+    refreshAllToggleButtons()
+
+    -- Refresh gradient palette for animated UIStroke
+    gradientColors = {theme.Accent, theme.AccentLight, theme.Accent, theme.AccentLight}
+
+    -- Reapply opacity after color change
+    applyOpacity(currentOpacity)
+end
+
+-- ==========================================
+-- TOGGLE HANDLERS (REFRESH)
+-- ==========================================
+function refreshAllToggleButtons()
+    local accent = Themes[CurrentTheme].Accent
+    local green = Color3.fromRGB(50, 200, 50)
+
+    ToggleBossBtn.BackgroundColor3 = AutoKillBossEnabled and green or accent
+    ToggleBossBtn.Text = "INSTANT KILL BOSS : " .. (AutoKillBossEnabled and "ON" or "OFF")
+
+    ToggleEnemyBtn.BackgroundColor3 = AutoKillEnemyEnabled and green or accent
+    ToggleEnemyBtn.Text = "INSTANT KILL NPC : " .. (AutoKillEnemyEnabled and "ON" or "OFF")
+
+    ToggleOpsBtn.BackgroundColor3 = AutoOpsEnabled and green or accent
+    ToggleOpsBtn.Text = "AUTO START OPS : " .. (AutoOpsEnabled and "ON" or "OFF")
+
+    ToggleRaidBtn.BackgroundColor3 = AutoRaidEnabled and green or accent
+    ToggleRaidBtn.Text = "AUTO REPLAY RAID : " .. (AutoRaidEnabled and "ON" or "OFF")
+
+    ToggleChestBtn.BackgroundColor3 = AutoChestEnabled and green or accent
+    ToggleChestBtn.Text = "AUTO OPEN CHEST : " .. (AutoChestEnabled and "ON" or "OFF")
+
+    ToggleAntiAFKBtn.BackgroundColor3 = AutoAntiAFKEnabled and green or accent
+    ToggleAntiAFKBtn.Text = "ANTI-AFK : " .. (AutoAntiAFKEnabled and "ON" or "OFF")
+end
+
+-- ==========================================
+-- TAB THEME BUTTONS (di SETTINGS)
+-- ==========================================
+local themeKeys = {}
+for k in pairs(Themes) do table.insert(themeKeys, k) end
+table.sort(themeKeys)
+
+for i, key in ipairs(themeKeys) do
+    local col = (i - 1) % 2
+    local row = math.floor((i - 1) / 2)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.48, 0, 0, 24)
+    btn.Position = UDim2.new(0.01 + col * 0.5, 0, 0, 60 + row * 28)
+    btn.BackgroundColor3 = Themes[key].Accent
+    btn.BorderSizePixel = 0
+    btn.Text = Themes[key].Name
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.Code
+    btn.TextSize = 10
+    btn.Parent = SettingsContent
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 3)
+    c.Parent = btn
+    btn.MouseButton1Click:Connect(function()
+        applyTheme(key)
+    end)
+end
+
+-- ==========================================
+-- OPACITY SLIDER LOGIC
+-- ==========================================
+local sliderDragging = false
+
+local function updateOpacityFromX(x)
+    local rel = math.clamp((x - OpacityTrack.AbsolutePosition.X) / OpacityTrack.AbsoluteSize.X, 0.3, 1.0)
+    OpacityFill.Size = UDim2.new(rel, 0, 1, 0)
+    OpacityKnob.Position = UDim2.new(rel, -7, 0.5, -7)
+    OpacityLabel.Text = "UI OPACITY : " .. math.floor(rel * 100) .. "%"
+    applyOpacity(rel)
+end
+
+OpacityTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = true
+        updateOpacityFromX(input.Position.X)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if sliderDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        updateOpacityFromX(input.Position.X)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = false
+    end
+end)
+
+-- ==========================================
+-- TAB SWITCHING
+-- ==========================================
+local function setActiveTab(idx)
+    activeTab = idx
+    local theme = Themes[CurrentTheme]
+    for i, btn in ipairs(tabButtons) do
+        if i == idx then
+            btn.BackgroundColor3 = theme.Accent
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            btn.BackgroundColor3 = theme.Input
+            btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
+        tabContents[i].Visible = (i == idx)
+    end
+    -- Reapply opacity to newly active tab buttons
+    applyOpacity(currentOpacity)
+end
+
+for i, btn in ipairs(tabButtons) do
+    btn.MouseButton1Click:Connect(function() setActiveTab(i) end)
+end
+setActiveTab(1)
+
+-- ==========================================
+-- TOGGLE CLICK HANDLERS
+-- ==========================================
+ToggleBossBtn.MouseButton1Click:Connect(function()
+    AutoKillBossEnabled = not AutoKillBossEnabled
+    refreshAllToggleButtons()
+end)
+
+ToggleEnemyBtn.MouseButton1Click:Connect(function()
+    AutoKillEnemyEnabled = not AutoKillEnemyEnabled
+    refreshAllToggleButtons()
+end)
+
+ToggleOpsBtn.MouseButton1Click:Connect(function()
+    AutoOpsEnabled = not AutoOpsEnabled
+    refreshAllToggleButtons()
+end)
+
+ToggleRaidBtn.MouseButton1Click:Connect(function()
+    AutoRaidEnabled = not AutoRaidEnabled
+    refreshAllToggleButtons()
+end)
+
+ToggleChestBtn.MouseButton1Click:Connect(function()
+    AutoChestEnabled = not AutoChestEnabled
+    refreshAllToggleButtons()
+end)
+
+ToggleAntiAFKBtn.MouseButton1Click:Connect(function()
+    AutoAntiAFKEnabled = not AutoAntiAFKEnabled
+    refreshAllToggleButtons()
+end)
+
+AddBtn.MouseButton1Click:Connect(function()
+    local newName = string.lower(TargetInput.Text):match("^%s*(.-)%s*$")
+    if newName ~= "" then
+        table.insert(BossNames, newName)
+        table.insert(EnemyNames, newName)
+        table.insert(getgenv().UniSc_CustomTargets, newName)
+        InfoText.Text = "STATUS: ADDED TARGET\nNAME: " .. newName
+        TargetInput.Text = ""
+    else
+        InfoText.Text = "STATUS: INPUT EMPTY"
+    end
+end)
+
+-- ==========================================
+-- ANTI-AFK (IDLED FALLBACK)
+-- ==========================================
+LocalPlayer.Idled:Connect(function()
+    if not AutoAntiAFKEnabled then return end
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+end)
+
+-- ==========================================
+-- MINIMIZE / MAXIMIZE (DRAGGABLE ICON)
+-- ==========================================
+local isMinimized = false
+local minDragState = {active = false, startMouse = nil, movedDist = 0, startPos = nil}
+
+local function minimize()
+    isMinimized = true
+    MainFrame.Draggable = false
+    MainFrame.Size = UDim2.new(0, 50, 0, 50)
+    TitleBar.Visible = false
+    TabBar.Visible = false
+    for _, c in ipairs(tabContents) do c.Visible = false end
+    InfoText.Visible = false
+    MinIcon.Visible = true
+end
+
+local function maximize()
+    isMinimized = false
+    MainFrame.Draggable = true
+    MainFrame.Size = UDim2.new(0, 320, 0, 300)
+    TitleBar.Visible = true
+    TabBar.Visible = true
+    InfoText.Visible = true
+    setActiveTab(activeTab)
+    MinIcon.Visible = false
+end
+
+MinBtn.MouseButton1Click:Connect(minimize)
+
+-- Drag detection for minimized icon
+MinIcon.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        minDragState.active = true
+        minDragState.startMouse = input.Position
+        minDragState.movedDist = 0
+        minDragState.startPos = MainFrame.AbsolutePosition
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if minDragState.active then
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - minDragState.startMouse
+            minDragState.movedDist = delta.Magnitude
+            MainFrame.Position = UDim2.new(
+                0, minDragState.startPos.X + delta.X,
+                0, minDragState.startPos.Y + delta.Y
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        minDragState.active = false
+    end
+end)
+
+MinIcon.MouseButton1Click:Connect(function()
+    if minDragState.movedDist < 5 then
+        maximize()
+    end
+end)
+
+-- ==========================================
+-- CLEANUP
+-- ==========================================
+local function Cleanup()
+    isAlive = false
+    if ScreenGui then ScreenGui:Destroy() end
+    getgenv().UniSc_Persistent = nil
+    getgenv().UniSc_GUI = nil
+end
+
+CloseBtn.MouseButton1Click:Connect(Cleanup)
+
+-- ==========================================
+-- LOGIKA AUTO START OPS (FAST POLLING + JITTER)
+-- ==========================================
+task.spawn(function()
+    local FIRE_COOLDOWN = jit(2.5)
+    local FORCE_FIRE_TIMEOUT = jit(12)
+    local lastFire = 0
+
+    local function isBossAlive()
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj.ClassName == "Model" then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local nameLower = string.lower(obj.Name)
+                    for _, bName in ipairs(BossNames) do
+                        if string.find(nameLower, bName, 1, true) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoOpsEnabled then
+            local now = tick()
+            local elapsed = now - lastFire
+
+            if elapsed >= FIRE_COOLDOWN then
+                local bossAlive = isBossAlive()
+                if not bossAlive or elapsed >= FORCE_FIRE_TIMEOUT then
+                    pcall(function()
+                        local OpsRemote = ReplicatedStorage:FindFirstChild("OD_Remotes")
+                            and ReplicatedStorage.OD_Remotes:FindFirstChild("Ops")
+                        if OpsRemote then
+                            local args = {
+                                [1] = "create",
+                                [2] = {
+                                    ["location"] = "CorpSpire",
+                                    ["conditions"] = {
+                                        [1] = "GlassBody",
+                                        [2] = "NoImplants"
+                                    },
+                                    ["directive"] = "Boss"
+                                }
+                            }
+                            OpsRemote:FireServer(unpack(args))
+                            InfoText.Text = "STATUS: REQUESTING OPS...\nWAITING FOR BOSS"
+                        end
+                    end)
+                    lastFire = now
+                else
+                    InfoText.Text = "STATUS: BOSS ACTIVE\nWAITING FOR KILL..."
+                end
+            end
+            task.wait(jit(0.75))
+        else
+            task.wait(jit(1))
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA AUTO REPLAY RAID (+ JITTER)
+-- ==========================================
+task.spawn(function()
+    local FIRE_COOLDOWN = jit(3)
+    local lastFire = 0
+
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoRaidEnabled then
+            local now = tick()
+            if now - lastFire >= FIRE_COOLDOWN then
+                pcall(function()
+                    local RaidChoiceRemote = ReplicatedStorage:FindFirstChild("OD_Remotes")
+                        and ReplicatedStorage.OD_Remotes:FindFirstChild("RaidChoice")
+                    if RaidChoiceRemote then
+                        RaidChoiceRemote:FireServer("again")
+                        InfoText.Text = "STATUS: REPLAYING RAID..."
+                    end
+                end)
+                lastFire = now
+            end
+            task.wait(jit(0.5))
+        else
+            task.wait(jit(1))
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA AUTO OPEN CHEST (+ JITTER)
+-- ==========================================
+task.spawn(function()
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        if AutoChestEnabled then
+            pcall(function()
+                local OD_Remotes = ReplicatedStorage:FindFirstChild("OD_Remotes")
+                local CrateRemote = OD_Remotes and OD_Remotes:FindFirstChild("Crate")
+                if CrateRemote then
+                    for i = 1, 10 do
+                        CrateRemote:FireServer("chest", i)
+                    end
+                    InfoText.Text = "STATUS: OPENING CHEST..."
+                end
+            end)
+            task.wait(jit(0.5))
+        else
+            task.wait(jit(1))
+        end
+    end
+end)
+
+-- ==========================================
+-- LOGIKA INSTANT KILL (OPTIMIZED + JITTER)
+-- ==========================================
+task.spawn(function()
+    local SCAN_INTERVAL = jit(0.22)
+    local cachedChar = nil
+    local cachedRoot = nil
+    local lastStatus = ""
+
+    while isAlive and ScreenGui and ScreenGui.Parent do
+        task.wait(SCAN_INTERVAL + math.random() * 0.06)
+
+        if not (AutoKillBossEnabled or AutoKillEnemyEnabled) then
+            cachedChar = nil
+            cachedRoot = nil
+            task.wait(jit(0.5))
+        else
+            if cachedChar ~= LocalPlayer.Character or (cachedRoot and not cachedRoot.Parent) then
+                cachedChar = LocalPlayer.Character
+                cachedRoot = cachedChar and cachedChar:FindFirstChild("HumanoidRootPart")
+            end
+
+            if cachedRoot then
+                local myPos = cachedRoot.Position
+                local found = false
+
+                local function tryKill(obj)
+                    if obj.ClassName ~= "Model" then return false end
+
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health <= 0 then return false end
+
+                    local nameLower = string.lower(obj.Name)
+                    local targetType = nil
+
+                    if AutoKillBossEnabled then
+                        for _, bName in ipairs(BossNames) do
+                            if string.find(nameLower, bName, 1, true) then
+                                targetType = "BOSS"
+                                break
+                            end
+                        end
+                    end
+                    if not targetType and AutoKillEnemyEnabled then
+                        for _, eName in ipairs(EnemyNames) do
+                            if string.find(nameLower, eName, 1, true) then
+                                targetType = "NPC"
+                                break
+                            end
+                        end
+                    end
+                    if not targetType then return false end
+
+                    local targetRoot = obj:FindFirstChild("HumanoidRootPart")
+                        or obj.PrimaryPart
+                        or obj:FindFirstChild("Head")
+                    if not targetRoot then return false end
+
+                    local distance = (targetRoot.Position - myPos).Magnitude
+                    if distance > MAX_DISTANCE then return false end
+
+                    pcall(function() hum.Health = 0 end)
+                    pcall(function() hum:TakeDamage(999999999) end)
+                    pcall(function()
+                        local tool = cachedChar:FindFirstChildOfClass("Tool")
+                        if tool then tool:Activate() end
+                    end)
+
+                    InfoText.Text = "STATUS: KILLED " .. targetType .. "\nTARGET: " .. obj.Name .. "\nDIST: " .. math.floor(distance) .. " STUDS"
+                    return true
+                end
+
+                for _, obj in ipairs(Workspace:GetChildren()) do
+                    local className = obj.ClassName
+                    if className == "Model" then
+                        if tryKill(obj) then found = true; break end
+                    elseif className == "Folder" then
+                        local children = obj:GetChildren()
+                        if #children > 0 then
+                            for _, sub in ipairs(children) do
+                                if sub.ClassName == "Model" and tryKill(sub) then
+                                    found = true
+                                    break
+                                end
+                            end
+                        end
+                        if found then break end
+                    end
+                end
+
+                if not found and not AutoOpsEnabled then
+                    local newStatus = "STATUS: SCANNING (<= " .. MAX_DISTANCE .. " STUDS)...\nNO TARGETS IN RANGE"
+                    if lastStatus ~= newStatus then
+                        InfoText.Text = newStatus
+                        lastStatus = newStatus
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- ANIMASI UI (THEME-AWARE)
+-- ==========================================
+local gradientColors = {Themes[CurrentTheme].Accent, Themes[CurrentTheme].AccentLight, Themes[CurrentTheme].Accent, Themes[CurrentTheme].AccentLight}
+local currentColorIndex = 1
+local nextColorIndex = 2
+local colorLerp = 0
+
+RunService.Heartbeat:Connect(function()
+    if not isAlive or not ScreenGui or not ScreenGui.Parent then return end
+    if not gradientColors or #gradientColors < 2 then return end
+    local animatedColor = gradientColors[currentColorIndex]:Lerp(gradientColors[nextColorIndex], colorLerp)
+    pcall(function() UIStroke.Color = animatedColor end)
+    colorLerp = colorLerp + 0.02
+    if colorLerp >= 1 then
+        colorLerp = 0
+        currentColorIndex = nextColorIndex
+        nextColorIndex = nextColorIndex + 1
+        if nextColorIndex > #gradientColors then nextColorIndex = 1 end
+        if currentColorIndex > #gradientColors then currentColorIndex = 1 end
+    end
+end)
+]==]
+
+-- AUTO EXECUTE SAAT TELEPORT (Delta Executor)
+pcall(function()
+    queue_on_teleport(script_source)
+end)
+
+-- EKSEKUSI UTAMA
+local func, err = loadstring(script_source)
+if func then
+    func()
+else
+    warn("[UniSc] Gagal load script: " .. tostring(err))
+end
