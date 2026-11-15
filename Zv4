@@ -60,7 +60,7 @@ local EnemyNames = {
     "ironvale drone", "ice ghost", "enemy", "mob", "helix trooper",
     "razorback", "boss"
 }
-local MAX_DISTANCE = 130
+local MAX_DISTANCE = 250
 
 for _, customName in ipairs(getgenv().UniSc_CustomTargets) do
     table.insert(BossNames, customName)
